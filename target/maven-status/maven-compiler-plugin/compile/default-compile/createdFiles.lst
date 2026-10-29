@@ -1,0 +1,5 @@
+com\salonia\controller\EstilistaController.class
+com\salonia\SaloniaApplication.class
+com\salonia\controller\ServicioController.class
+com\salonia\controller\CitaController.class
+com\salonia\controller\ClienteController.class
