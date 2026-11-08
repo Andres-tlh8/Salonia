@@ -35,59 +35,39 @@ public class CitaServiceImpl implements CitaService {
 
     @Override
     public CitaResponse createCita(CreateCitaRequest request, Long salonId) {
+        Salon salon = findSalonById(salonId);
 
-        Cliente cliente = clienteRepository.findById(request.clienteId())
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Cliente no encontrado con id: " + request.clienteId()));
+        Cliente cliente = findClienteEnSalon(request.clienteId(), salonId);
+        Estilista estilista = findEstilistaEnSalon(request.estilistaId(), salonId);
+        Servicio servicio = findServicioEnSalon(request.servicioId(), salonId);
 
-        Estilista estilista = estilistaRepository.findById(request.estilistaId())
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Estilista no encontrado con id: " + request.estilistaId()));
-
-        Servicio servicio = servicioRepository.findById(request.servicioId())
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Servicio no encontrado con id: " + request.servicioId()));
-
-        if (!cliente.getSalon().getId().equals(salonId)
-                || !estilista.getSalon().getId().equals(salonId)
-                || !servicio.getSalon().getId().equals(salonId)) {
-
-            throw new IllegalArgumentException(
-                    "El cliente, estilista y servicio deben pertenecer al mismo salón");
-        }
-
-        validarFechaHora(
-                request.fecha(),
-                request.horaInicio(),
-                servicio.getDuracionMinutos(),
-                estilista,
-                null
-        );
+        validarMismaRelacionDeSalon(cliente.getSalon().getId(), estilista.getSalon().getId(), servicio.getSalon().getId(), salonId);
+        validarFechaHora(request.fecha(), request.horaInicio(), servicio.getDuracionMinutos(), estilista, null);
 
         Cita cita = new Cita();
-
         cita.setFecha(request.fecha());
         cita.setHoraInicio(request.horaInicio());
-        cita.setHoraFin(
-                request.horaInicio()
-                        .plusMinutes(servicio.getDuracionMinutos())
-        );
-
+        cita.setHoraFin(request.horaInicio().plusMinutes(servicio.getDuracionMinutos()));
         cita.setEstado(EstadoCita.PENDIENTE);
         cita.setCliente(cliente);
         cita.setEstilista(estilista);
         cita.setServicio(servicio);
-        cita.setSalon(cliente.getSalon());
+        cita.setSalon(salon);
 
         return toResponse(citaRepository.save(cita));
     }
 
     @Override
     public List<CitaResponse> getAllCitas(Long salonId) {
+        return getAllCitas(salonId, LocalDate.now());
+    }
 
+    @Override
+    public List<CitaResponse> getAllCitas(Long salonId, LocalDate fecha) {
         findSalonById(salonId);
+        LocalDate fechaFiltro = fecha != null ? fecha : LocalDate.now();
 
-        return citaRepository.findBySalonId(salonId)
+        return citaRepository.findBySalonIdAndFecha(salonId, fechaFiltro)
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -95,110 +75,33 @@ public class CitaServiceImpl implements CitaService {
 
     @Override
     public CitaResponse getCitaById(Long id, Long salonId) {
-
-        Cita cita = citaRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Cita no encontrada con id: " + id));
-
-        if (!cita.getSalon().getId().equals(salonId)) {
-            throw new EntityNotFoundException(
-                    "Cita no pertenece al salón actual");
-        }
-
-        return toResponse(cita);
+        return toResponse(findCitaById(id, salonId));
     }
 
     @Override
-    public CitaResponse updateCita(
-            Long id,
-            UpdateCitaRequest request,
-            Long salonId) {
+    public CitaResponse updateCita(Long id, UpdateCitaRequest request, Long salonId) {
+        Cita cita = findCitaById(id, salonId);
 
-        Cita cita = citaRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Cita no encontrada con id: " + id));
-
-        if (!cita.getSalon().getId().equals(salonId)) {
-            throw new EntityNotFoundException(
-                    "Cita no pertenece al salón actual");
-        }
-
-        LocalDate fecha =
-                request.fecha() != null
-                        ? request.fecha()
-                        : cita.getFecha();
-
-        LocalTime horaInicio =
-                request.horaInicio() != null
-                        ? request.horaInicio()
-                        : cita.getHoraInicio();
+        LocalDate fecha = request.fecha() != null ? request.fecha() : cita.getFecha();
+        LocalTime horaInicio = request.horaInicio() != null ? request.horaInicio() : cita.getHoraInicio();
 
         if (request.clienteId() != null) {
-
-            Cliente cliente = clienteRepository.findById(request.clienteId())
-                    .orElseThrow(() -> new EntityNotFoundException(
-                            "Cliente no encontrado con id: "
-                                    + request.clienteId()));
-
-            if (!cliente.getSalon().getId().equals(salonId)) {
-                throw new IllegalArgumentException(
-                        "El cliente no pertenece al mismo salón");
-            }
-
-            cita.setCliente(cliente);
+            cita.setCliente(findClienteEnSalon(request.clienteId(), salonId));
         }
 
         if (request.estilistaId() != null) {
-
-            Estilista estilista =
-                    estilistaRepository.findById(request.estilistaId())
-                            .orElseThrow(() -> new EntityNotFoundException(
-                                    "Estilista no encontrado con id: "
-                                            + request.estilistaId()));
-
-            if (!estilista.getSalon().getId().equals(salonId)) {
-                throw new IllegalArgumentException(
-                        "El estilista no pertenece al mismo salón");
-            }
-
-            cita.setEstilista(estilista);
+            cita.setEstilista(findEstilistaEnSalon(request.estilistaId(), salonId));
         }
 
         if (request.servicioId() != null) {
-
-            Servicio servicio =
-                    servicioRepository.findById(request.servicioId())
-                            .orElseThrow(() -> new EntityNotFoundException(
-                                    "Servicio no encontrado con id: "
-                                            + request.servicioId()));
-
-            if (!servicio.getSalon().getId().equals(salonId)) {
-                throw new IllegalArgumentException(
-                        "El servicio no pertenece al mismo salón");
-            }
-
-            cita.setServicio(servicio);
+            cita.setServicio(findServicioEnSalon(request.servicioId(), salonId));
         }
 
-        if (request.fecha() != null
-                || request.horaInicio() != null
-                || request.servicioId() != null) {
-
-            validarFechaHora(
-                    fecha,
-                    horaInicio,
-                    cita.getServicio().getDuracionMinutos(),
-                    cita.getEstilista(),
-                    cita.getId()
-            );
-
+        if (debeRevalidarHorario(request)) {
+            validarFechaHora(fecha, horaInicio, cita.getServicio().getDuracionMinutos(), cita.getEstilista(), cita.getId());
             cita.setFecha(fecha);
             cita.setHoraInicio(horaInicio);
-            cita.setHoraFin(
-                    horaInicio.plusMinutes(
-                            cita.getServicio().getDuracionMinutos()
-                    )
-            );
+            cita.setHoraFin(horaInicio.plusMinutes(cita.getServicio().getDuracionMinutos()));
         }
 
         return toResponse(citaRepository.save(cita));
@@ -206,65 +109,108 @@ public class CitaServiceImpl implements CitaService {
 
     @Override
     public void deleteCita(Long id, Long salonId) {
-
-        Cita cita = citaRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Cita no encontrada con id: " + id));
-
-        if (!cita.getSalon().getId().equals(salonId)) {
-            throw new EntityNotFoundException(
-                    "Cita no pertenece al salón actual");
-        }
-
-        citaRepository.delete(cita);
+        citaRepository.delete(findCitaById(id, salonId));
     }
 
     @Override
     public CitaResponse confirmarCita(Long id, Long salonId) {
-
-        Cita cita = findCitaById(id, salonId);
-        cita.setEstado(EstadoCita.CONFIRMADA);
-
-        return toResponse(citaRepository.save(cita));
+        return cambiarEstado(id, EstadoCita.CONFIRMADA, salonId);
     }
 
     @Override
     public CitaResponse cancelarCita(Long id, Long salonId) {
-
-        Cita cita = findCitaById(id, salonId);
-        cita.setEstado(EstadoCita.CANCELADA);
-
-        return toResponse(citaRepository.save(cita));
+        return cambiarEstado(id, EstadoCita.CANCELADA, salonId);
     }
 
     @Override
     public CitaResponse completarCita(Long id, Long salonId) {
+        return cambiarEstado(id, EstadoCita.COMPLETADA, salonId);
+    }
 
+    @Override
+    public CitaResponse noAsistioCita(Long id, Long salonId) {
+        return cambiarEstado(id, EstadoCita.NO_ASISTIO, salonId);
+    }
+
+    @Override
+    public CitaResponse cambiarEstado(Long id, EstadoCita nuevoEstado, Long salonId) {
         Cita cita = findCitaById(id, salonId);
-        cita.setEstado(EstadoCita.COMPLETADA);
-
+        validarCambioEstado(cita.getEstado(), nuevoEstado);
+        cita.setEstado(nuevoEstado);
         return toResponse(citaRepository.save(cita));
     }
 
-    private Cita findCitaById(Long id, Long salonId) {
+    private Salon findSalonById(Long salonId) {
+        return salonRepository.findById(salonId)
+                .orElseThrow(() -> new EntityNotFoundException("Salon no encontrado con id: " + salonId));
+    }
 
+    private Cita findCitaById(Long id, Long salonId) {
         Cita cita = citaRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Cita no encontrada con id: " + id));
+                .orElseThrow(() -> new EntityNotFoundException("Cita no encontrada con id: " + id));
 
         if (!cita.getSalon().getId().equals(salonId)) {
-            throw new EntityNotFoundException(
-                    "Cita no pertenece al salón actual");
+            throw new EntityNotFoundException("Cita no pertenece al salón actual");
         }
 
         return cita;
     }
 
-    private Salon findSalonById(Long salonId) {
+    private Cliente findClienteEnSalon(Long clienteId, Long salonId) {
+        Cliente cliente = clienteRepository.findById(clienteId)
+                .orElseThrow(() -> new EntityNotFoundException("Cliente no encontrado con id: " + clienteId));
 
-        return salonRepository.findById(salonId)
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Salon no encontrado con id: " + salonId));
+        if (!cliente.getSalon().getId().equals(salonId)) {
+            throw new IllegalArgumentException("El cliente no pertenece al mismo salón");
+        }
+
+        return cliente;
+    }
+
+    private Estilista findEstilistaEnSalon(Long estilistaId, Long salonId) {
+        Estilista estilista = estilistaRepository.findById(estilistaId)
+                .orElseThrow(() -> new EntityNotFoundException("Estilista no encontrado con id: " + estilistaId));
+
+        if (!estilista.getSalon().getId().equals(salonId)) {
+            throw new IllegalArgumentException("El estilista no pertenece al mismo salón");
+        }
+
+        return estilista;
+    }
+
+    private Servicio findServicioEnSalon(Long servicioId, Long salonId) {
+        Servicio servicio = servicioRepository.findById(servicioId)
+                .orElseThrow(() -> new EntityNotFoundException("Servicio no encontrado con id: " + servicioId));
+
+        if (!servicio.getSalon().getId().equals(salonId)) {
+            throw new IllegalArgumentException("El servicio no pertenece al mismo salón");
+        }
+
+        return servicio;
+    }
+
+    private void validarMismaRelacionDeSalon(Long clienteSalonId, Long estilistaSalonId, Long servicioSalonId, Long salonId) {
+        if (!clienteSalonId.equals(salonId)
+                || !estilistaSalonId.equals(salonId)
+                || !servicioSalonId.equals(salonId)) {
+            throw new IllegalArgumentException("El cliente, estilista y servicio deben pertenecer al mismo salón");
+        }
+    }
+
+    private boolean debeRevalidarHorario(UpdateCitaRequest request) {
+        return request.fecha() != null || request.horaInicio() != null || request.servicioId() != null;
+    }
+
+    private void validarCambioEstado(EstadoCita estadoActual, EstadoCita nuevoEstado) {
+        if (nuevoEstado == null) {
+            throw new IllegalArgumentException("El nuevo estado no puede ser nulo");
+        }
+
+        if (!estadoActual.puedeCambiarA(nuevoEstado)) {
+            throw new IllegalArgumentException(
+                    "No se permite cambiar una cita de " + estadoActual + " a " + nuevoEstado
+            );
+        }
     }
 
     private void validarFechaHora(
@@ -275,63 +221,41 @@ public class CitaServiceImpl implements CitaService {
             Long citaActualId) {
 
         if (fecha.isBefore(LocalDate.now())) {
-            throw new IllegalArgumentException(
-                    "No se permiten citas en fechas pasadas");
+            throw new IllegalArgumentException("No se permiten citas en fechas pasadas");
         }
 
-        if (fecha.equals(LocalDate.now())
-                && horaInicio.isBefore(LocalTime.now())) {
-
-            throw new IllegalArgumentException(
-                    "No se permiten citas en horas ya transcurridas");
+        if (fecha.equals(LocalDate.now()) && horaInicio.isBefore(LocalTime.now())) {
+            throw new IllegalArgumentException("No se permiten citas en horas ya transcurridas");
         }
 
-        LocalTime horaFin =
-                horaInicio.plusMinutes(duracionMinutos);
+        LocalTime horaFin = horaInicio.plusMinutes(duracionMinutos);
+        LocalTime horaApertura = LocalTime.of(8, 0);
+        LocalTime horaCierre = LocalTime.of(18, 0);
 
-        LocalTime horaApertura =
-                LocalTime.of(8, 0);
-
-        LocalTime horaCierre =
-                LocalTime.of(18, 0);
-
-        if (horaInicio.isBefore(horaApertura)
-                || horaFin.isAfter(horaCierre)) {
-
-            throw new IllegalArgumentException(
-                    "La cita está fuera del horario de atención (08:00 - 18:00)");
+        if (horaInicio.isBefore(horaApertura) || horaFin.isAfter(horaCierre)) {
+            throw new IllegalArgumentException("La cita está fuera del horario de atención (08:00 - 18:00)");
         }
 
-        List<Cita> citasDelDia =
-                citaRepository.findByEstilistaIdAndFecha(
-                        estilista.getId(),
-                        fecha
-                );
+        List<Cita> citasDelDia = citaRepository.findByEstilistaIdAndFecha(estilista.getId(), fecha);
 
         for (Cita cita : citasDelDia) {
-
-            if (cita.getEstado() == EstadoCita.CANCELADA) {
+            if (!cita.getEstado().ocupaAgenda()) {
                 continue;
             }
 
-            if (citaActualId != null
-                    && cita.getId().equals(citaActualId)) {
+            if (citaActualId != null && citaActualId.equals(cita.getId())) {
                 continue;
             }
 
-            boolean traslape =
-                    horaInicio.isBefore(cita.getHoraFin())
-                            && horaFin.isAfter(cita.getHoraInicio());
+            boolean traslape = horaInicio.isBefore(cita.getHoraFin()) && horaFin.isAfter(cita.getHoraInicio());
 
             if (traslape) {
-                throw new IllegalArgumentException(
-                        "No se permite traslape de citas para el mismo estilista");
+                throw new IllegalArgumentException("No se permite traslape de citas para el mismo estilista");
             }
         }
     }
 
     private CitaResponse toResponse(Cita cita) {
-
         return new CitaResponse(
                 cita.getId(),
                 cita.getFecha(),

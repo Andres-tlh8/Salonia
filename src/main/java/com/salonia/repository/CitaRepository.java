@@ -22,4 +22,6 @@ public interface CitaRepository extends JpaRepository<Cita, Long> {
     );
 
     List<Cita> findBySalonId(Long salonId);
+
+    List<Cita> findBySalonIdAndFecha(Long salonId, LocalDate fecha);
 }
